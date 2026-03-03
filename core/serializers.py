@@ -1,6 +1,6 @@
 import math
 from rest_framework import serializers
-from .models import RegisteredUser, Deck, Startup, Problem, Solution, MarketAnalysis, FundingAsk, TeamMember, FinancialProjection, Watchlist, StartupView, StartupComparison
+from .models import RegisteredUser, Startup, FinancialProjection, Watchlist, StartupView, StartupComparison
 from datetime import timedelta
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -108,15 +108,6 @@ class RegisteredUserProfileSerializer(serializers.ModelSerializer):
         
         return instance
 
-class DeckSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Deck
-        fields = ['id', 'company_name', 'tagline', 'logo', 'created_at']
-        extra_kwargs = {
-            'tagline': {'required': False, 'allow_blank': True},
-            'logo': {'required': False, 'allow_null': True}
-        }
-
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -125,6 +116,14 @@ class UserSerializer(serializers.ModelSerializer):
 class StartupSerializer(serializers.ModelSerializer):
     owner_email = serializers.EmailField(source='owner.user.email', read_only=True)
     source_deck_id = serializers.IntegerField(source='source_deck.id', read_only=True)
+
+    press_mentions = serializers.CharField(required=False, allow_blank=True)
+    founder_story = serializers.CharField(required=False, allow_blank=True)
+
+    # File upload fields
+    logo = serializers.ImageField(required=False, allow_null=True)
+    pitch_deck_pdf = serializers.FileField(required=False, allow_null=True)
+    one_pager_pdf = serializers.FileField(required=False, allow_null=True)
 
     # Contact fields - writable via owner profile
     contact_email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
@@ -273,6 +272,8 @@ class StartupSerializer(serializers.ModelSerializer):
             'intellectual_property',
             'regulatory_status',
             'awards_and_recognition',
+            'press_mentions',
+            'founder_story',
             
             # Media
             'demo_video_url',
@@ -290,6 +291,10 @@ class StartupSerializer(serializers.ModelSerializer):
             'preferred_check_size_min',
             'preferred_check_size_max',
             'investor_preferences',
+            'location',
+            'founder_name',
+            'founder_title',
+            'founder_linkedin',
             
             # Metadata
             'owner_email',
@@ -318,6 +323,36 @@ class StartupSerializer(serializers.ModelSerializer):
         Override to populate owner fields when reading
         """
         representation = super().to_representation(instance)
+
+        # 📁 DEBUG: Log PDF field values
+        print("\n=== SERIALIZER to_representation DEBUG ===")
+        print("Startup ID:", instance.id)
+        print("pitch_deck_pdf field:", instance.pitch_deck_pdf)
+        print("one_pager_pdf field:", instance.one_pager_pdf)
+        
+        # CRITICAL: Ensure PDF URLs are included in response
+        if instance.pitch_deck_pdf:
+            # Build full URL including domain
+            request = self.context.get('request')
+            if request:
+                representation['pitch_deck_pdf'] = request.build_absolute_uri(instance.pitch_deck_pdf.url)
+            else:
+                representation['pitch_deck_pdf'] = instance.pitch_deck_pdf.url
+            print("✅ pitch_deck_pdf URL:", representation['pitch_deck_pdf'])
+        else:
+            representation['pitch_deck_pdf'] = None
+            print("❌ No pitch_deck_pdf")
+            
+        if instance.one_pager_pdf:
+            request = self.context.get('request')
+            if request:
+                representation['one_pager_pdf'] = request.build_absolute_uri(instance.one_pager_pdf.url)
+            else:
+                representation['one_pager_pdf'] = instance.one_pager_pdf.url
+            print("✅ one_pager_pdf URL:", representation['one_pager_pdf'])
+        else:
+            representation['one_pager_pdf'] = None
+            print("❌ No one_pager_pdf")
         
         # Populate contact and founder fields from owner
         if instance.owner:
@@ -329,7 +364,6 @@ class StartupSerializer(serializers.ModelSerializer):
             representation['founder_name'] = instance.owner.founder_name
             representation['founder_title'] = instance.owner.founder_title
             representation['founder_linkedin'] = instance.owner.founder_linkedin
-            representation['year_founded'] = instance.owner.year_founded
         
         return representation
     
@@ -348,7 +382,6 @@ class StartupSerializer(serializers.ModelSerializer):
             'founder_name': validated_data.pop('founder_name', None),
             'founder_title': validated_data.pop('founder_title', None),
             'founder_linkedin': validated_data.pop('founder_linkedin', None),
-            'year_founded': validated_data.pop('year_founded', None),
         }
         
         startup = super().create(validated_data)
@@ -369,7 +402,7 @@ class StartupSerializer(serializers.ModelSerializer):
         # Define owner field names
         owner_field_names = [
             'contact_email', 'contact_phone', 'website_url', 'linkedin_url', 
-            'location', 'founder_name', 'founder_title', 'founder_linkedin', 'year_founded'
+            'location', 'founder_name', 'founder_title', 'founder_linkedin'
         ]
         
         # Extract owner-related fields from validated_data (only if present)
@@ -940,102 +973,6 @@ class StartupSerializer(serializers.ModelSerializer):
                 'recent_watchlist': 0,
             }
 
-class ProblemSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Problem
-        fields = ['id', 'deck', 'description']
-
-class SolutionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Solution
-        fields = ['id', 'deck', 'description']
-
-class MarketAnalysisSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MarketAnalysis
-        fields = [
-            'id',
-            'deck',
-            'primary_market',
-            'target_audience',
-            'market_growth_rate',
-            'competitive_advantage',
-        ]
-
-class FundingAskSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = FundingAsk
-        fields = ['id', 'deck', 'amount', 'usage_description']
-
-class TeamMemberSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TeamMember
-        fields = ['id', 'deck', 'name', 'title']
-
-class FinancialProjectionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = FinancialProjection
-        fields = ['id', 'deck', 'valuation_multiple', 'current_valuation', 'projected_revenue_final_year', 'years_to_projection']
-
-class DeckDetailSerializer(serializers.ModelSerializer):
-    problem = ProblemSerializer(read_only=True)
-    solution = SolutionSerializer(read_only=True)
-    market_analysis = MarketAnalysisSerializer(read_only=True)
-    team_members = TeamMemberSerializer(many=True, read_only=True)
-    financials = FinancialProjectionSerializer(many=True, read_only=True)
-    ask = FundingAskSerializer(read_only=True)
-
-    class Meta:
-        model = Deck
-        fields = [
-            'id', 'company_name', 'tagline', 'logo',
-            'team_members', 'financials', 'ask', 'problem', 'solution', 'market_analysis','created_at'
-        ]
-
-class DeckReportSerializer(serializers.ModelSerializer):
-    problem = serializers.SerializerMethodField()
-    solution = serializers.SerializerMethodField()
-    market_analysis = serializers.SerializerMethodField()
-    financials = FinancialProjectionSerializer(many=True)
-    ask = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Deck
-        fields = ['company_name', 'tagline', 'problem', 'solution', 'market_analysis', 'financials', 'ask','created_at']
-
-    def get_problem(self, obj):
-        return {'description': obj.problem.description} if obj.problem else {}
-
-    def get_solution(self, obj):
-        return {'description': obj.solution.description} if obj.solution else {}
-
-    def get_market_analysis(self, obj):
-        if obj.market_analysis:
-            return {
-                'primary_market': obj.market_analysis.primary_market,
-                'target_audience': obj.market_analysis.target_audience,
-                'market_growth_rate': obj.market_analysis.market_growth_rate,
-                'competitive_advantage': obj.market_analysis.competitive_advantage
-            }
-        return {}
-
-    def get_ask(self, obj):
-        return {
-            'amount': obj.ask.amount,
-            'usage_description': obj.ask.usage_description
-        } if obj.ask else {}
-
-
-class StartupViewSerializer(serializers.ModelSerializer):
-    """Serializer for recording startup views"""
-    company_name = serializers.CharField(source='startup.company_name', read_only=True)
-    viewer_email = serializers.EmailField(source='user.email', read_only=True)
-    
-    class Meta:
-        model = StartupView
-        fields = ['id', 'viewer_email', 'company_name', 'viewed_at', 'ip_address']
-        read_only_fields = ['id', 'viewer_email', 'company_name', 'viewed_at', 'ip_address']
-
 
 class RecordViewResponseSerializer(serializers.Serializer):
     """Serializer for view recording response"""
@@ -1046,7 +983,6 @@ class RecordViewResponseSerializer(serializers.Serializer):
     unique_viewers = serializers.IntegerField()
     viewed_at = serializers.DateTimeField()
 
-
 class StartupComparisonSerializer(serializers.ModelSerializer):
     """Serializer for recording startup comparisons"""
     company_name = serializers.CharField(source='startup.company_name', read_only=True)
@@ -1056,7 +992,6 @@ class StartupComparisonSerializer(serializers.ModelSerializer):
         model = StartupComparison
         fields = ['id', 'comparer_email', 'company_name', 'compared_at', 'comparison_set_id']
         read_only_fields = ['id', 'comparer_email', 'company_name', 'compared_at']
-
 
 class RecordComparisonResponseSerializer(serializers.Serializer):
     """Serializer for comparison recording response"""

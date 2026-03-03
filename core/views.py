@@ -59,11 +59,6 @@ from .models import (
     Download,
     RegisteredUser,
     ComparisonSet,
-    Deck,
-    Problem,
-    Solution,
-    MarketAnalysis,
-    FundingAsk,
     StartupView,
     StartupComparison,
 )
@@ -71,14 +66,6 @@ from .models import (
 # Local app imports - Forms
 from .forms import (
     RegistrationForm,
-    LoginForm,
-    DeckForm,
-    FinancialProjectionFormSet,
-    FundingAskForm,
-    MarketAnalysisForm,
-    ProblemForm,
-    SolutionForm,
-    TeamMemberFormSet,
 )
 
 # Local app imports - Serializers
@@ -87,21 +74,109 @@ from .serializers import (
     InvestorRegistrationSerializer,
     StartupRegistrationSerializer,
     LoginSerializer,
-    DeckSerializer,
     StartupSerializer,
-    ProblemSerializer,
-    SolutionSerializer,
-    MarketAnalysisSerializer,
-    FundingAskSerializer,
-    TeamMemberSerializer,
-    FinancialProjectionSerializer,
-    DeckDetailSerializer,
-    DeckReportSerializer,
-    StartupViewSerializer,
     RecordViewResponseSerializer,
     StartupComparisonSerializer,
     RecordComparisonResponseSerializer,
 )
+
+
+# ============================================================================
+# CONFIDENCE CALCULATION UTILITY
+# ============================================================================
+
+def calculate_confidence_percentage(startup):
+    """Calculate confidence percentage based on data completeness and quality."""
+    score = 0
+    max_score = 0
+    
+    def has_value(field):
+        if field is None:
+            return False
+        if isinstance(field, str):
+            return bool(field.strip())
+        if isinstance(field, (int, float)):
+            return field > 0
+        try:
+            from decimal import Decimal
+            if isinstance(field, Decimal):
+                return field > 0
+        except:
+            pass
+        return bool(field)
+    
+    # CRITICAL FIELDS (40 points)
+    max_score += 15
+    if has_value(startup.current_revenue) or has_value(startup.revenue):
+        score += 10
+        if has_value(startup.previous_revenue):
+            score += 5
+    
+    max_score += 10
+    if has_value(startup.current_valuation):
+        score += 10
+    
+    max_score += 15
+    traction_count = sum([has_value(startup.total_users), has_value(startup.paid_users), has_value(startup.current_mrr_arr)])
+    score += (traction_count / 3) * 15
+    
+    # IMPORTANT FIELDS (30 points)
+    max_score += 10
+    balance_count = sum([has_value(startup.total_assets), has_value(startup.total_liabilities), has_value(startup.shareholder_equity)])
+    score += (balance_count / 3) * 10
+    
+    max_score += 10
+    if has_value(startup.cash_flow):
+        score += 10
+    
+    max_score += 10
+    unit_econ_count = sum([has_value(startup.cac), has_value(startup.ltv), has_value(startup.gross_margin)])
+    score += (unit_econ_count / 3) * 10
+    
+    # SUPPORTING FIELDS (20 points)
+    max_score += 8
+    market_count = sum([has_value(startup.market_size_tam), has_value(startup.market_size_sam), has_value(startup.market_growth_rate)])
+    score += (market_count / 3) * 8
+    
+    max_score += 7
+    if has_value(startup.competitive_advantage):
+        score += 4
+    if has_value(startup.competitors):
+        score += 3
+    
+    max_score += 5
+    qual_count = sum([has_value(startup.team_strength), has_value(startup.market_position), has_value(startup.brand_reputation)])
+    score += (qual_count / 3) * 5
+    
+    # BONUS FACTORS (10 points)
+    max_score += 5
+    if has_value(startup.capital_raised_to_date):
+        score += 3
+    if has_value(startup.funding_history):
+        score += 2
+    
+    max_score += 5
+    if has_value(startup.awards_and_recognition):
+        score += 2
+    if has_value(startup.key_partnerships):
+        score += 2
+    if has_value(startup.notable_customers):
+        score += 1
+    
+    # Calculate final percentage
+    confidence_percentage = int(round((score / max_score) * 100)) if max_score > 0 else 0
+    confidence_percentage = max(0, min(100, confidence_percentage))
+    
+    # Determine confidence level
+    if confidence_percentage >= 80:
+        confidence_level = 'High'
+    elif confidence_percentage >= 50:
+        confidence_level = 'Medium'
+    else:
+        confidence_level = 'Low'
+    
+    return confidence_percentage, confidence_level
+
 
 def get_django_user_from_session(request):
     """
@@ -126,53 +201,6 @@ def get_django_user_from_session(request):
         }
     )
     return django_user
-
-
-SECTION_CONFIG = {
-    'cover-page': {
-        'form_class': DeckForm,
-        'template_key': 'form',
-        'next_section': 'the-problem',
-        'is_formset': False,
-        'use_files': True,
-        'create_deck': True,
-    },
-    'the-problem': {
-        'form_class': ProblemForm,
-        'template_key': 'form',
-        'next_section': 'the-solution',
-    },
-    'the-solution': {
-        'form_class': SolutionForm,
-        'template_key': 'form',
-        'next_section': 'market-analysis',
-    },
-    'market-analysis': {
-        'form_class': MarketAnalysisForm,
-        'template_key': 'form',
-        'next_section': 'the-team',
-    },
-
-    'the-team': {
-        'form_class': TeamMemberFormSet,
-        'template_key': 'formset',
-        'next_section': 'financials',
-        'is_formset': True,
-        'prefix': 'team',
-    },
-    'financials': {
-        'form_class': FinancialProjectionFormSet,
-        'template_key': 'formset',
-        'next_section': 'the-ask',
-        'is_formset': True,
-        'prefix': 'financials',
-    },
-        'the-ask': {
-        'form_class': FundingAskForm,
-        'template_key': 'form',
-        'next_section': 'deck_home',
-    },
-}
 
 class section_list(APIView):
     # authentication_classes = [JWTAuthentication]
@@ -202,89 +230,6 @@ class index(APIView):
             'startup_user_name': startup_user_name
         }
         return Response(data, status=status.HTTP_200_OK)
-
-class deck_builder(APIView):
-    def get(self, request, section):
-        if section not in SECTION_CONFIG:
-            return Response({"error": "Section not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        config = SECTION_CONFIG[section]
-        form_class = config['form_class']
-        is_cover_page = config.get('create_deck', False)
-
-        deck_id = request.query_params.get('deck_id')
-        startup_user_id = request.user.id  # assuming token-based auth
-
-        if is_cover_page and not startup_user_id:
-            return Response({"error": "Login required to create deck"}, status=status.HTTP_403_FORBIDDEN)
-
-        deck = get_object_or_404(Deck, id=deck_id, owner_id=startup_user_id) if deck_id else None
-        form_kwargs = {'prefix': config.get('prefix')}
-
-        if deck:
-            form_kwargs['instance'] = getattr(deck, section.replace('-', '_'), None)
-
-        form = form_class(**form_kwargs)
-        return Response({"form": form.initial}, status=status.HTTP_200_OK)
-
-    def post(self, request, section):
-        if section not in SECTION_CONFIG:
-            return Response({"error": "Section not found"}, status=status.HTTP_404_NOT_FOUND)
-
-        config = SECTION_CONFIG[section]
-        form_class = config['form_class']
-        is_cover_page = config.get('create_deck', False)
-        is_formset = config.get('is_formset', False)
-
-        deck_id = request.data.get('deck_id')
-        startup_user_id = request.user.id
-
-        deck = get_object_or_404(Deck, id=deck_id, owner_id=startup_user_id) if deck_id else None
-        form_kwargs = {
-            'prefix': config.get('prefix'),
-            'data': request.data,
-            'files': request.FILES,
-            'instance': getattr(deck, section.replace('-', '_'), None) if deck else None
-        }
-
-        form = form_class(**form_kwargs)
-
-        if form.is_valid():
-            with transaction.atomic():
-                if is_cover_page and not deck:
-                    deck = form.save(commit=False)
-                    deck.owner_id = startup_user_id
-                    deck.save()
-                elif deck:
-                    instance = form.save(commit=False)
-                    instance.deck = deck
-                    instance.save()
-                else:
-                    return Response({"error": "No active deck found"}, status=status.HTTP_400_BAD_REQUEST)
-
-                # Create Startup entry linked to Deck, if not already existing
-                if not Startup.objects.filter(source_deck_id=deck.id).exists():
-                    market = getattr(deck, 'market_analysis', None)
-                    
-                    Startup.objects.create(
-                        owner=RegisteredUser.objects.get(user=request.user),
-                        company_name=getattr(deck, "company_name", "Untitled Deck"),
-                        tagline=getattr(deck, "tagline", ""),
-                        industry=market.primary_market if market else "—",
-                        company_description=getattr(deck, "description", ""),
-                        data_source_confidence="Medium",
-                        source_deck_id=deck.id,
-                        # Note: is_deck_builder is now deprecated - source_deck presence indicates origin
-                        funding_ask=getattr(deck.ask, 'amount', None) if hasattr(deck, 'ask') else None,
-                        market_growth_rate=market.market_growth_rate if market else None,
-                    )
-
-            return Response(
-                {"message": f"{section} saved successfully", "deck_id": deck.id},
-                status=status.HTTP_200_OK
-            )
-        else:
-            return Response({"errors": form.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 class investor_registration(APIView):
     def post(self, request):
@@ -441,7 +386,6 @@ class StartupListView(ListAPIView):
         ).prefetch_related(
             Prefetch(
                 'source_deck__market_analysis',
-                queryset=MarketAnalysis.objects.all()
             )
         ).all()
 
@@ -2275,63 +2219,6 @@ class calculate_investment_api(APIView):
             } if selected_startup else None
         }, status=200)
 
-
-
-# MOD 4
-class deck_home(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        try:
-            owner_instance = request.user.profile  # Access RegisteredUser via OneToOneField
-        except RegisteredUser.DoesNotExist:
-            return Response({'error': 'Startup profile not found.'}, status=403)
-
-        if owner_instance.label != 'startup':
-            return Response({'error': 'You must be logged in as a startup to view your decks.'}, status=403)
-
-        decks = Deck.objects.filter(owner=owner_instance).order_by('-created_at')
-        serializer = DeckSerializer(decks, many=True)
-
-        return Response({'decks': serializer.data}, status=200)
-
-class edit_deck(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, deck_id):
-        startup_user_id = request.session.get('startup_user_id')
-        if not startup_user_id:
-            return Response({'error': 'Authentication required.'}, status=403)
-
-        deck = get_object_or_404(Deck, id=deck_id, owner_id=startup_user_id)
-        request.session['deck_id'] = deck_id
-
-        return Response({
-            'success': True,
-            'message': 'Deck set for editing.',
-            'deck_id': deck_id,
-            'redirect_section': 'cover-page'
-        }, status=200)
-
-class delete_deck(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def delete(self, request, deck_id):
-        try:
-            owner = request.user.profile
-            deck = get_object_or_404(Deck, id=deck_id, owner=owner)
-            # 🔥 Delete any startup linked to this deck
-            Startup.objects.filter(source_deck=deck).delete()
-            # 🧹 Then delete the deck itself
-            deck.delete()
-            return Response({'success': True, 'message': 'Deck and linked startup deleted successfully.'}, status=200)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({'error': str(e)}, status=500)
-
 class startup_registration(APIView):
     def post(self, request):
         serializer = StartupRegistrationSerializer(data=request.data)
@@ -2432,101 +2319,6 @@ class user_logout(APIView):
             'message': 'You have been logged out successfully.'
         }, status=status.HTTP_200_OK)
 
-class company_information_form(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        user = request.user
-        
-        try:
-            registered_user = RegisteredUser.objects.get(user=user)
-            
-            if registered_user.label != 'startup':
-                return Response({
-                    'error': 'Only startup users can submit company information.'
-                }, status=status.HTTP_403_FORBIDDEN)
-        except RegisteredUser.DoesNotExist:
-            return Response({
-                'error': 'User profile not found.'
-            }, status=status.HTTP_404_NOT_FOUND)
-
-        data = request.data
-
-        # Helper function to safely parse numeric values
-        def parse_numeric(value):
-            if value is None or value == '':
-                return None
-            try:
-                return float(value)
-            except (ValueError, TypeError):
-                return None
-
-        # Validate required fields
-        if not data.get('company_name') or not data.get('industry'):
-            return Response({
-                'success': False,
-                'error': 'Company name and industry are required fields.',
-                'errors': {
-                    'company_name': ['This field is required.'] if not data.get('company_name') else [],
-                    'industry': ['This field is required.'] if not data.get('industry') else []
-                }
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Create the startup with financial data
-        startup = Startup.objects.create(
-            owner=registered_user,
-            company_name=data.get('company_name', '').strip(),
-            industry=data.get('industry', '').strip(),
-            company_description=data.get('company_description', '').strip(),
-            
-            # Financial Data
-            time_between_periods=parse_numeric(data.get('time_between_periods')),
-            previous_revenue=parse_numeric(data.get('previous_revenue')),
-            current_revenue=parse_numeric(data.get('current_revenue')),
-            revenue=parse_numeric(data.get('current_revenue')),
-            net_income=parse_numeric(data.get('net_income')),
-            ebit=parse_numeric(data.get('ebit')),
-            total_assets=parse_numeric(data.get('total_assets')),
-            current_assets=parse_numeric(data.get('current_assets')),
-            total_liabilities=parse_numeric(data.get('total_liabilities')),
-            current_liabilities=parse_numeric(data.get('current_liabilities')),
-            retained_earnings=parse_numeric(data.get('retained_earnings')),
-            shareholder_equity=parse_numeric(data.get('shareholder_equity')),
-            cash_flow=parse_numeric(data.get('cash_flow')),
-            current_valuation=parse_numeric(data.get('current_valuation')),
-            expected_future_valuation=parse_numeric(data.get('expected_future_valuation')),
-            years_to_future_valuation=parse_numeric(data.get('years_to_future_valuation')),
-            
-            # Qualitative Data
-            team_strength=data.get('team_strength', '').strip(),
-            market_position=data.get('market_position', '').strip(),
-            brand_reputation=data.get('brand_reputation', '').strip(),
-            
-            # Inherit contact and founder info from user profile
-            contact_email=registered_user.contact_email,
-            contact_phone=registered_user.contact_phone,
-            website_url=registered_user.website_url,
-            linkedin_url=registered_user.linkedin_url,
-            location=registered_user.location,
-            founder_name=registered_user.founder_name,
-            founder_title=registered_user.founder_title,
-            founder_linkedin=registered_user.founder_linkedin,
-            
-            # Year founded
-            year_founded=parse_numeric(data.get('year_founded')),
-            
-            # Confidence Metrics
-            data_source_confidence=data.get('data_source_confidence', 'Medium').strip(),
-            confidence_percentage=int(parse_numeric(data.get('confidence_percentage')) or 50),
-        )
-
-        return Response({
-            'success': True,
-            'message': 'Company information saved successfully.',
-            'startup_id': startup.id,
-            'company_name': startup.company_name
-        }, status=status.HTTP_201_CREATED)
-
 class health_report_page(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -2551,19 +2343,34 @@ class health_report_page(APIView):
 @api_view(['POST'])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
-@csrf_exempt
 def add_startup(request):
     """
     DRF-compliant view to add a new startup using StartupSerializer
+    Handles both JSON and multipart/form-data (for file uploads)
     """
-    # Get the authenticated user from JWT token
     user = request.user
     
+    # 📁 DEBUG: Log incoming data
+    print("\n=== INCOMING REQUEST DEBUG ===")
+    print("Content-Type:", request.content_type)
+    print("Has FILES:", bool(request.FILES))
+    print("FILES keys:", list(request.FILES.keys()) if request.FILES else None)
+    print("DATA keys:", list(request.data.keys())[:20])  # First 20 keys
+    
+    # Check for PDF files specifically
+    if 'pitch_deck_pdf' in request.FILES:
+        print("✅ pitch_deck_pdf found:", request.FILES['pitch_deck_pdf'].name)
+    else:
+        print("❌ pitch_deck_pdf NOT in FILES")
+        
+    if 'one_pager_pdf' in request.FILES:
+        print("✅ one_pager_pdf found:", request.FILES['one_pager_pdf'].name)
+    else:
+        print("❌ one_pager_pdf NOT in FILES")
+    
     try:
-        # Get the RegisteredUser profile
         registered_user = RegisteredUser.objects.get(user=user)
         
-        # Check if user is a startup
         if registered_user.label != 'startup':
             return Response({
                 'success': False, 
@@ -2576,16 +2383,26 @@ def add_startup(request):
             'error': 'User profile not found'
         }, status=status.HTTP_404_NOT_FOUND)
 
-    # Prepare data for serializer
-    startup_data = request.data.copy()
-    
-    # Create serializer instance with the data
-    serializer = StartupSerializer(data=startup_data, context={'request': request})
+    # Create serializer with both data and files
+    # DRF automatically combines request.data and request.FILES
+    serializer = StartupSerializer(
+        data=request.data,
+        context={'request': request}
+    )
     
     if serializer.is_valid():
         try:
-            # Save the startup with the owner (passed as kwarg, not in data)
             startup = serializer.save(owner=registered_user)
+            
+            # 📁 DEBUG: Log saved startup
+            print("\n=== SAVED STARTUP DEBUG ===")
+            print("Startup ID:", startup.id)
+            print("pitch_deck_pdf:", startup.pitch_deck_pdf)
+            print("pitch_deck_pdf.name:", startup.pitch_deck_pdf.name if startup.pitch_deck_pdf else None)
+            print("pitch_deck_pdf.url:", startup.pitch_deck_pdf.url if startup.pitch_deck_pdf else None)
+            print("one_pager_pdf:", startup.one_pager_pdf)
+            print("one_pager_pdf.name:", startup.one_pager_pdf.name if startup.one_pager_pdf else None)
+            print("one_pager_pdf.url:", startup.one_pager_pdf.url if startup.one_pager_pdf else None)
             
             return Response({
                 'success': True,
@@ -2594,9 +2411,8 @@ def add_startup(request):
                 'data': StartupSerializer(startup, context={'request': request}).data
             }, status=status.HTTP_201_CREATED)
         except Exception as e:
-            # Log the actual error for debugging
             import traceback
-            print(f"Error saving startup: {e}")
+            print(f"❌ Error saving startup: {e}")
             traceback.print_exc()
             
             return Response({
@@ -2604,7 +2420,8 @@ def add_startup(request):
                 'error': f'Failed to save startup: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     else:
-        # Return validation errors
+        print("\n=== VALIDATION ERRORS ===")
+        print(serializer.errors)
         return Response({
             'success': False,
             'error': 'Validation failed',
@@ -2709,15 +2526,10 @@ class edit_startup(APIView):
             except (ValueError, TypeError):
                 return None
 
-        confidence_level = data.get('data_source_confidence', 'Medium')
-        confidence_percentage = {'High': 75, 'Medium': 50, 'Low': 30}.get(confidence_level, 50)
-
         # Update all fields
         startup.company_name = data.get('company_name', '')
         startup.industry = data.get('industry', '')
         startup.company_description = data.get('company_description', '')
-        startup.data_source_confidence = confidence_level
-        startup.confidence_percentage = confidence_percentage
         
         # Financial data - Income Statement
         startup.reporting_period = data.get('reporting_period', '')
@@ -2741,6 +2553,11 @@ class edit_startup(APIView):
         startup.team_strength = data.get('team_strength', '')
         startup.market_position = data.get('market_position', '')
         startup.brand_reputation = data.get('brand_reputation', '')
+
+        # Calculate confidence dynamically based on data completeness
+        confidence_percentage, confidence_level = calculate_confidence_percentage(startup)
+        startup.confidence_percentage = confidence_percentage
+        startup.data_source_confidence = confidence_level
 
         startup.save()
 
@@ -2837,58 +2654,6 @@ class view_startup_report(APIView):
         }
         return Response(company_data, status=status.HTTP_200_OK)
 
-class create_deck(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        data = request.data
-
-        try:
-            with transaction.atomic():
-                # Create deck
-                deck_serializer = DeckSerializer(data=data.get('deck'))
-                deck_serializer.is_valid(raise_exception=True)
-                deck = deck_serializer.save(owner=request.user)
-
-                # Create one-to-one components
-                for key, serializer_class in {
-                    'problem': ProblemSerializer,
-                    'solution': SolutionSerializer,
-                    'market_analysis': MarketAnalysisSerializer,
-                    'ask': FundingAskSerializer
-                }.items():
-                    section_data = data.get(key)
-                    if section_data:
-                        section_data['deck'] = deck.id
-                        serializer = serializer_class(data=section_data)
-                        serializer.is_valid(raise_exception=True)
-                        serializer.save()
-
-                # Create team members
-                team_data = data.get('team_members', [])
-                for member in team_data:
-                    member['deck'] = deck.id
-                    serializer = TeamMemberSerializer(data=member)
-                    serializer.is_valid(raise_exception=True)
-                    serializer.save()
-
-                # Create financial projections
-                financial_data = data.get('financials', [])
-                for projection in financial_data:
-                    projection['deck'] = deck.id
-                    serializer = FinancialProjectionSerializer(data=projection)
-                    serializer.is_valid(raise_exception=True)
-                    serializer.save()
-
-            return Response({
-                'success': True,
-                'message': 'Deck created successfully!',
-                'deck_id': deck.id
-            }, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
 class add_deck_to_recommended(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -2957,8 +2722,6 @@ class add_deck_to_recommended(APIView):
                 tagline=deck.tagline,  # Now a direct field
                 industry=industry,
                 company_description=company_description,
-                data_source_confidence='High',
-                confidence_percentage=85,
                 revenue=total_revenue,
                 net_income=total_profit,
                 funding_ask=funding_ask_amount,
@@ -2974,6 +2737,12 @@ class add_deck_to_recommended(APIView):
                 # Note: is_deck_builder removed - source_deck indicates origin
             )
 
+            # Calculate confidence dynamically based on data completeness
+            confidence_percentage, confidence_level = calculate_confidence_percentage(startup)
+            startup.confidence_percentage = confidence_percentage
+            startup.data_source_confidence = confidence_level
+            startup.save()
+
             return Response({
                 'success': True,
                 'message': f'"{deck.company_name}" has been added to your startup recommendations!',
@@ -2987,54 +2756,6 @@ class add_deck_to_recommended(APIView):
             print(f"Error in AddDeckToRecommendedView: {str(e)}")
             print(traceback.format_exc())
             return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-class save_pitch_deck_financials(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        deck_id = request.data.get('deck_id')
-        current_valuation = request.data.get('current_valuation')
-        industry_multiple = request.data.get('industry_multiple')
-        years_to_projection = request.data.get('years_to_projection')
-        projected_revenue = request.data.get('projected_revenue')
-
-        if not deck_id:
-            return Response({'error': 'deck_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            startup_user_id = request.session.get('startup_user_id')
-            user = RegisteredUser.objects.get(id=startup_user_id)
-            deck = get_object_or_404(Deck, id=deck_id, owner=user)
-
-            # Save to market_analysis for valuation multiple
-            market_analysis, created = MarketAnalysis.objects.get_or_create(deck=deck)
-            market_analysis.valuation_multiple = industry_multiple
-            market_analysis.save()
-
-            # Create or update the financial projection record for the final year
-            FinancialProjection.objects.update_or_create(
-                deck=deck,
-                year=years_to_projection,
-                defaults={
-                    'revenue': projected_revenue,
-                    'profit': None  # Can be calculated later if needed
-                }
-            )
-
-            # Also update the FundingAsk with current valuation
-            FundingAsk.objects.update_or_create(
-                deck=deck,
-                defaults={'amount': current_valuation}
-            )
-
-            return Response({
-                'success': True,
-                'message': 'Financial projections saved successfully'
-            }, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class debug_session(APIView):
     permission_classes = [IsAuthenticated]
@@ -3047,570 +2768,6 @@ class debug_session(APIView):
         }
         return Response(session_data, status=200)
 
-class create_new_deck(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        try:
-            owner_instance = request.user.profile  # Comes from JWT
-
-            deck = Deck.objects.create(
-                owner=owner_instance,
-                company_name="Untitled Deck",
-                tagline=""
-            )
-
-            print(f"DEBUG: Created fresh new deck {deck.id} for user {owner_instance.id}")
-
-            return Response({
-                'success': True,
-                'message': 'New deck created successfully.',
-                'deck_id': deck.id,
-                'next_section': 'cover-page'
-            }, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            return Response({
-                'error': f'An error occurred while creating a new deck: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-class create_cover(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        owner = request.user.profile
-        deck_id = request.data.get('deck_id')
-
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-
-            deck_data = {
-                'company_name': request.data.get('company_name'),
-                'tagline': request.data.get('tagline'),
-            }
-
-            if 'logo' in request.FILES:
-                deck_data['logo'] = request.FILES['logo']
-
-            serializer = DeckSerializer(deck, data=deck_data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            deck = serializer.save()
-            
-            # 🔄 Sync Startup if one is linked to this deck
-            startup = Startup.objects.filter(source_deck=deck).first()
-            if startup:
-                startup.company_name = deck.company_name
-                startup.company_description = deck.tagline or startup.company_description
-                startup.save()
-                print(f"✅ Synced cover page changes to Startup {startup.id}")
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        except ValidationError as ve:
-            return Response({'success': False, 'errors': ve.detail}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def get(self, request):
-        deck_id = request.query_params.get('deck_id')
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            owner = request.user.profile
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-
-            return Response({
-                'company_name': deck.company_name,
-                'tagline': deck.tagline,
-                'logo_url': deck.logo.url if deck.logo else None
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        
-class create_problem(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        owner = request.user.profile
-        deck_id = request.data.get('deck_id')
-
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            problem_instance = getattr(deck, 'problem', None)
-
-            serializer = ProblemSerializer(
-                instance=problem_instance,
-                data={'deck': deck.id, 'description': request.data.get('description')},
-                partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-
-            return Response({
-                'success': True,
-                'message': 'Problem section saved successfully.',
-                'deck_id': deck.id
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        except ValidationError as ve:
-            return Response({'success': False, 'errors': ve.detail}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def get(self, request):
-        deck_id = request.query_params.get('deck_id')
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            owner = request.user.profile
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            problem_instance = getattr(deck, 'problem', None)
-
-            if not problem_instance:
-                return Response({'description': ''}, status=status.HTTP_200_OK)
-
-            return Response({
-                'description': problem_instance.description
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)    
-        
-class create_solution(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        owner = request.user.profile
-        deck_id = request.data.get('deck_id')
-
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            solution_instance = getattr(deck, 'solution', None)
-
-            serializer = SolutionSerializer(
-                instance=solution_instance,
-                data={'deck': deck.id, 'description': request.data.get('description')},
-                partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-
-            return Response({
-                'success': True,
-                'message': 'Solution section saved successfully.',
-                'deck_id': deck.id
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        except ValidationError as ve:
-            return Response({'success': False, 'errors': ve.detail}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def get(self, request):
-        deck_id = request.query_params.get('deck_id')
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            owner = request.user.profile
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            solution_instance = getattr(deck, 'solution', None)
-
-            if not solution_instance:
-                return Response({'description': ''}, status=status.HTTP_200_OK)
-
-            return Response({
-                'description': solution_instance.description
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        
-class create_market_analysis(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        owner = request.user.profile
-        deck_id = request.data.get('deck_id')
-
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            market_instance = getattr(deck, 'market_analysis', None)
-
-            serializer = MarketAnalysisSerializer(
-                instance=market_instance,
-                data={
-                    'deck': deck.id,
-                    'primary_market': request.data.get('primary_market'),
-                    'target_audience': request.data.get('target_audience'),
-                    'market_growth_rate': request.data.get('market_growth_rate'),
-                    'competitive_advantage': request.data.get('competitive_advantage')
-                },
-                partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            market = serializer.save()
-            
-            #Sync industry to Startup
-            startup = Startup.objects.filter(source_deck=deck).first()
-            if startup and market.primary_market:
-                startup.industry = market.primary_market
-                startup.save()
-                print(f"Synced industry '{market.primary_market}' to Startup {startup.id}")
-
-            return Response({
-                'success': True,
-                'message': 'Market analysis section saved successfully.',
-                'deck_id': deck.id
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        except ValidationError as ve:
-            return Response({'success': False, 'errors': ve.detail}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def get(self, request):
-        deck_id = request.query_params.get('deck_id')
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            owner = request.user.profile
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            market_instance = getattr(deck, 'market_analysis', None)
-
-            if not market_instance:
-                return Response({
-                    'primary_market': '',
-                    'target_audience': '',
-                    'market_growth_rate': '',
-                    'competitive_advantage': ''
-                }, status=status.HTTP_200_OK)
-
-            return Response({
-                'primary_market': market_instance.primary_market,
-                'target_audience': market_instance.target_audience,
-                'market_growth_rate': market_instance.market_growth_rate,
-                'competitive_advantage': market_instance.competitive_advantage
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-
-class create_team(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        owner = request.user.profile
-        deck_id = request.data.get('deck_id')
-        members = request.data.get('members', [])
-
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-
-            # Clear existing team members (optional)
-            deck.team_members.all().delete()
-
-            # Validate and create new members
-            created = []
-            for member in members:
-                serializer = TeamMemberSerializer(data={
-                    'deck': deck.id,
-                    'name': member.get('name'),
-                    'title': member.get('title')
-                })
-                serializer.is_valid(raise_exception=True)
-                created.append(serializer.save())
-
-            # 🔄 Sync Startup if linked to this deck
-            team_text = "\n".join([f"{m.name} - {m.title}" for m in deck.team_members.all()])
-
-            return Response({
-                'success': True,
-                'message': 'Team members saved successfully.',
-                'deck_id': deck.id,
-                'members': TeamMemberSerializer(created, many=True).data
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def get(self, request):
-        deck_id = request.query_params.get('deck_id')
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            owner = request.user.profile
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            members = deck.team_members.all()
-
-            return Response({
-                'members': TeamMemberSerializer(members, many=True).data
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        
-class create_financial(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        owner = request.user.profile
-        deck_id = request.data.get('deck_id')
-        
-        # Get IRR calculation fields
-        current_valuation = request.data.get('current_valuation')
-        industry_multiple = request.data.get('industry_valuation_multiple')
-        years_to_projection = request.data.get('years_to_projection')
-        projected_revenue = request.data.get('projected_revenue')
-
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Validate required fields
-        if not all([current_valuation, industry_multiple, years_to_projection, projected_revenue]):
-            return Response({
-                'error': 'Missing required fields: current_valuation, industry_valuation_multiple, years_to_projection, projected_revenue'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-
-            # Clear existing financials
-            deck.financials.all().delete()
-            
-            # Create the financial projection with all the IRR fields
-            financial_projection = FinancialProjection.objects.create(
-                deck=deck,
-                current_valuation=float(current_valuation),
-                valuation_multiple=float(industry_multiple),
-                projected_revenue_final_year=float(projected_revenue),
-                years_to_projection=int(years_to_projection)
-            )
-            
-            # SYNC: Copy projection data to linked Startup for unified calculations
-            startup = Startup.objects.filter(source_deck=deck).first()
-            if startup:
-                # Calculate future valuation from projections: Revenue × Multiple
-                future_valuation = float(projected_revenue) * float(industry_multiple)
-                
-                # Update Startup with valuation-based IRR fields
-                startup.current_valuation = float(current_valuation)
-                startup.expected_future_valuation = future_valuation
-                startup.years_to_future_valuation = int(years_to_projection)
-                startup.save()
-                
-                print(f"Synced deck financials to Startup {startup.id}: "
-                      f"Current: {current_valuation}, Future: {future_valuation}, Years: {years_to_projection}")
-
-            return Response({
-                'success': True,
-                'message': 'Financial projections saved successfully.',
-                'deck_id': deck.id,
-                'financial_projection': FinancialProjectionSerializer(financial_projection).data
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def get(self, request):
-        deck_id = request.query_params.get('deck_id')
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            owner = request.user.profile
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            
-            # Return financial projection data with IRR fields
-            financial = deck.financials.first()
-            if financial:
-                return Response({
-                    'current_valuation': financial.current_valuation,
-                    'valuation_multiple': financial.valuation_multiple,
-                    'projected_revenue_final_year': financial.projected_revenue_final_year,
-                    'years_to_projection': financial.years_to_projection
-                }, status=status.HTTP_200_OK)
-            else:
-                return Response({
-                    'current_valuation': None,
-                    'valuation_multiple': None,
-                    'projected_revenue_final_year': None,
-                    'years_to_projection': None
-                }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        
-class create_ask(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        owner = request.user.profile
-        deck_id = request.data.get('deck_id')
-
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            ask_instance = getattr(deck, 'ask', None)
-
-            serializer = FundingAskSerializer(
-                instance=ask_instance,
-                data={
-                    'deck': deck.id,
-                    'amount': request.data.get('amount'),
-                    'usage_description': request.data.get('usage_description')
-                },
-                partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-
-            # 🔄 Sync funding ask if Startup already exists
-            Startup.objects.filter(source_deck=deck).update(
-                funding_ask=serializer.instance.amount
-            )
-
-            if not Startup.objects.filter(source_deck=deck).exists():
-                market = getattr(deck, 'market_analysis', None)
-                
-                # Get financial projection if it exists
-                financial = deck.financials.first()
-                current_val = None
-                expected_future_val = None
-                years_to_val = None
-                
-                if financial:
-                    current_val = float(financial.current_valuation) if financial.current_valuation else None
-                    if (financial.projected_revenue_final_year and 
-                        financial.valuation_multiple and 
-                        current_val):
-                        # Future Valuation = Projected Revenue × Multiple
-                        expected_future_val = float(financial.projected_revenue_final_year) * float(financial.valuation_multiple)
-                        years_to_val = int(financial.years_to_projection) if financial.years_to_projection else None
-                
-                # Create unified startup with all available data
-                Startup.objects.create(
-                    owner=owner,
-                    company_name=deck.company_name,
-                    tagline=deck.tagline,  # Now a direct field
-                    industry=market.primary_market if market and market.primary_market else '—',
-                    company_description=deck.tagline or '',
-                    data_source_confidence='Medium',
-                    confidence_percentage=50,
-                    funding_ask=serializer.instance.amount,
-                    source_deck=deck,
-                    # Note: is_deck_builder removed - source_deck presence indicates origin
-                    # Sync financial projection data for unified IRR calculation
-                    current_valuation=current_val,
-                    expected_future_valuation=expected_future_val,
-                    years_to_future_valuation=years_to_val,
-                )
-                
-                print(f"Created unified Startup from Deck {deck.id} with financial projections")
-
-            return Response({
-                'success': True,
-                'message': 'Funding ask saved and startup created.',
-                'deck_id': deck.id
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    def get(self, request):
-        deck_id = request.query_params.get('deck_id')
-        if not deck_id:
-            return Response({'error': 'Missing deck_id.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            owner = request.user.profile
-            deck = Deck.objects.get(id=deck_id, owner=owner)
-            ask_instance = getattr(deck, 'ask', None)
-
-            if not ask_instance:
-                return Response({
-                    'amount': '',
-                    'usage_description': ''
-                }, status=status.HTTP_200_OK)
-
-            return Response({
-                'amount': ask_instance.amount,
-                'usage_description': ask_instance.usage_description
-            }, status=status.HTTP_200_OK)
-
-        except Deck.DoesNotExist:
-            return Response({'error': 'Deck not found or unauthorized.'}, status=status.HTTP_404_NOT_FOUND)
-        
-class UserDeckListView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        owner = request.user.profile
-        decks = Deck.objects.filter(owner=owner).order_by('-created_at')  # optional ordering
-        serializer = DeckDetailSerializer(decks, many=True)
-        return Response({
-            'success': True,
-            'count': len(decks),
-            'decks': serializer.data
-        }, status=status.HTTP_200_OK)
-
 class FinancialsView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -3619,24 +2776,6 @@ class FinancialsView(APIView):
         deck_id = request.query_params.get('deck_id')
         financials = FinancialProjection.objects.filter(deck_id=deck_id).order_by('year')
         serializer = FinancialProjectionSerializer(financials, many=True)
-        return Response(serializer.data)
-    
-class DeckReportView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, deck_id):  # <-- deck_id comes from the URL
-        try:
-            registered_user = RegisteredUser.objects.get(user=request.user)
-        except RegisteredUser.DoesNotExist:
-            return Response({'detail': 'RegisteredUser not found'}, status=404)
-
-        try:
-            deck = Deck.objects.get(id=deck_id, owner=registered_user)
-        except Deck.DoesNotExist:
-            return Response({'detail': 'Deck not found'}, status=404)
-
-        serializer = DeckReportSerializer(deck)
         return Response(serializer.data)
 
 class startup_detail(APIView):

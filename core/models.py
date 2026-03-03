@@ -244,8 +244,8 @@ class Startup(models.Model):
     team_strength = models.TextField(blank=True)
     market_position = models.TextField(blank=True)
     brand_reputation = models.TextField(blank=True)
-    confidence_percentage = models.IntegerField(default=75)
-    data_source_confidence = models.CharField(max_length=50, default='Medium')
+    confidence_percentage = models.IntegerField(default=0)
+    data_source_confidence = models.CharField(max_length=50, default='Low')
     
     # ===== 9. FUNDING HISTORY AND CURRENT ROUND =====
     capital_raised_to_date = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
@@ -314,6 +314,17 @@ class Startup(models.Model):
             models.Index(fields=['current_round_type']),
             models.Index(fields=['-created_at']),
         ]
+
+    def save(self, *args, **kwargs):
+        """
+        Override save to automatically calculate confidence on every save.
+        This ensures confidence is always up-to-date with the actual data.
+        """
+        from .utils import calculate_confidence_percentage
+        
+        self.confidence_percentage, self.data_source_confidence = calculate_confidence_percentage(self)
+        
+        super().save(*args, **kwargs)
     
     def __str__(self):
         if self.owner:
