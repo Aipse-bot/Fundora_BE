@@ -158,21 +158,24 @@ WSGI_APPLICATION = 'fundora_backend.wsgi.application'
 #     }
 # }
 
-DATABASES = {
-    'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL'),  # <- the env var name
-        conn_max_age=600,
-        ssl_require=True
-    )
-}
 
-# SSL configuration ONLY for PostgreSQL (when DATABASE_URL is set)
-if 'DATABASE_URL' in os.environ:
-    db_url = os.environ.get('DATABASE_URL', '')
-    if 'postgres' in db_url:
-        DATABASES['default']['OPTIONS'] = {
-            'sslmode': 'require',
+# Use Render Postgres in production, SQLite locally
+if os.environ.get("DATABASE_URL"):  # set automatically in Railway/Render
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get("DATABASE_URL"),
+            conn_max_age=600,  # optional: keep connections alive
+            ssl_require=True   # ensure SSL for Postgres
+        )
+    }
+else:
+    # Local dev fallback
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
         }
+    }
 
 SECRET_KEY = config("SECRET_KEY")
 DEBUG = config("DEBUG", default=False, cast=bool)
