@@ -2158,7 +2158,19 @@ class investment_simulation(APIView):
             "risk_level": risk_level,
         }
 
+        # store simulation in session
+        request.session["latest_simulation"] = response_data
+        request.session.modified = True
+
         return Response(response_data, status=200)
+    
+    def get(self, request):
+        simulation = request.session.get("latest_simulation")
+
+        if not simulation:
+            return Response({"detail": "No simulation found in session"}, status=404)
+
+        return Response(simulation, status=200)
 
 
 #TODO: UPDATE
