@@ -80,6 +80,8 @@ from .serializers import (
     RecordComparisonResponseSerializer,
 )
 
+from django.core.cache import cache
+
 
 # ============================================================================
 # CONFIDENCE CALCULATION UTILITY
@@ -2158,17 +2160,19 @@ class investment_simulation(APIView):
             "risk_level": risk_level,
         }
 
-        # store simulation in session
-        request.session["latest_simulation"] = response_data
-        request.session.modified = True
+        # Store in cache keyed by user ID
+        cache_key = f"latest_simulation_{request.user.id}"
+        cache.set(cache_key, response_data, timeout=None)  # None = until cache clears manually
 
         return Response(response_data, status=200)
     
     def get(self, request):
-        simulation = request.session.get("latest_simulation")
+        print(f"Retrieving latest simulation for user {request.user.id}")
+        cache_key = f"latest_simulation_{request.user.id}"
+        simulation = cache.get(cache_key)
 
         if not simulation:
-            return Response({"detail": "No simulation found in session"}, status=404)
+            return Response({"detail": "No simulation found in cache"}, status=404)
 
         return Response(simulation, status=200)
 
@@ -2320,6 +2324,9 @@ class added_startups(APIView):
 
 class user_logout(APIView):
     def post(self, request):
+        # Clear any cached simulation results for this user
+        cache_key = f"latest_simulation_{request.user.id}"
+        cache.delete(cache_key)
         # Clear session-based authentication
         logout(request)
 
