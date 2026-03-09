@@ -2166,9 +2166,9 @@ class investment_simulation(APIView):
 
         return Response(response_data, status=200)
     
-    def get(self, request):
-        print(f"Retrieving latest simulation for user {request.user.id}")
-        cache_key = f"latest_simulation_{request.user.id}"
+    # Django cache API
+    def get(self, request, startup_id):
+        cache_key = f"baseline_simulation_{startup_id}"  # per startup
         simulation = cache.get(cache_key)
 
         if not simulation:
