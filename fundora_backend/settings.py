@@ -86,6 +86,7 @@ CSRF_TRUSTED_ORIGINS = [
 # Exempt API endpoints from CSRF
 CSRF_EXEMPT_URLS = [
     '/api/',
+    '/chat/'
 ]
 
 # CORS_ALLOWED_ORIGINS = [
