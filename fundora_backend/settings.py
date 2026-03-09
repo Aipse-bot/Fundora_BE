@@ -58,8 +58,7 @@ MIDDLEWARE = [
 
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = [
-    "https://fundora-fe-git-final-fundoras-projects-345a93a5.vercel.app",
-    "https://fundora-fe-three.vercel.app",
+    "http://127.0.0.1:5500",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -86,7 +85,6 @@ CSRF_TRUSTED_ORIGINS = [
 # Exempt API endpoints from CSRF
 CSRF_EXEMPT_URLS = [
     '/api/',
-    '/chat/'
 ]
 
 # CORS_ALLOWED_ORIGINS = [
@@ -180,15 +178,8 @@ else:
     }
 
 SECRET_KEY = config("SECRET_KEY")
-DEBUG = config("DEBUG", default=True, cast=bool)
+DEBUG = config("DEBUG", default=False, cast=bool)
 
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "unique-simulation-cache",
-        "TIMEOUT": 60 * 60 * 24,  # default: 24 hours, can override per item
-    }
-}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
