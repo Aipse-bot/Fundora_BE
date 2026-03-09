@@ -2166,15 +2166,19 @@ class investment_simulation(APIView):
 
         return Response(response_data, status=200)
     
-    def get(self, request):
-        print(f"Retrieving latest simulation for user {request.user.id}")
-        cache_key = f"latest_simulation_{request.user.id}"
-        simulation = cache.get(cache_key)
-
-        if not simulation:
-            return Response({"detail": "No simulation found in cache"}, status=404)
-
-        return Response(simulation, status=200)
+    def get(self, request, startup_id=None):
+        if startup_id:
+            cache_key = f"latest_simulation_{request.user.id}_{startup_id}"
+            simulation = cache.get(cache_key)
+            if not simulation:
+                return Response({"detail": "No baseline simulation found"}, status=404)
+            return Response(simulation, status=200)
+        else:
+            cache_key = f"latest_simulation_{request.user.id}"
+            simulation = cache.get(cache_key)
+            if not simulation:
+                return Response({"detail": "No simulation found in cache"}, status=404)
+            return Response(simulation, status=200)
 
 
 #TODO: UPDATE
