@@ -2010,7 +2010,7 @@ def get_risk_color(confidence):
 
 class investment_simulation(APIView):
     #permission_classes = [IsAuthenticated]
-
+    print("Investment Simulation API initialized")
     def post(self, request):
         print(f"Investment simulation request data: {request.data}")
         startup_id = request.data.get('startup_id')
@@ -2168,7 +2168,8 @@ class investment_simulation(APIView):
         print(f"Cache data: {cache.get(cache_key)}")
         return Response(response_data, status=200)
     
-    def get(self, request, startup_id=None):
+    def get(self, request, *args, **kwargs):
+        startup_id = kwargs.get("startup_id")
         print(f"GET request received for investment simulation with startup_id={startup_id}")
         if startup_id:
             cache_key = f"latest_simulation_{request.user.id}"
