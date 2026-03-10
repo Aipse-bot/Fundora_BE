@@ -2009,7 +2009,7 @@ def get_risk_color(confidence):
         return 'bg-red-100 text-red-800'
 
 class investment_simulation(APIView):
-    permission_classes = [IsAuthenticated]
+    #permission_classes = [IsAuthenticated]
 
     def post(self, request):
         print(f"Investment simulation request data: {request.data}")
