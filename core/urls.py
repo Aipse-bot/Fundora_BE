@@ -9,8 +9,7 @@ from .views import (
     UpdateStartupProfileView,
     RecordStartupViewAPI,
     RecordStartupComparisonAPI,
-    AIRecommendationsView,
-    investment_simulation,
+    AIRecommendationsView
 )
 
 from django.conf import settings
@@ -73,8 +72,8 @@ urlpatterns = [
     path('users/me/', CurrentUserView.as_view(), name='current-user'),
     
     # Investment Simulation
-    path('investor/simulation/', investment_simulation.as_view(), name='investment_simulation'),
-    path('investor/simulation/<int:startup_id>/', investment_simulation.as_view(), name='investment_simulation_with_startup'),
+    path('investor/simulation/', views.investment_simulation.as_view(), name='investment_simulation'),
+    path('investor/simulation/<int:startup_id>/', views.investment_simulation.as_view(), name='investment_simulation_with_startup'),
     
     # Startup Comparison
     path('investor/comparison/', views.startup_comparison.as_view(), name='startup_comparison'),
