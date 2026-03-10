@@ -2008,10 +2008,6 @@ def get_risk_color(confidence):
     else:
         return 'bg-red-100 text-red-800'
 
-import logging
-
-logger = logging.getLogger(__name__)
-
 class investment_simulation(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -2169,7 +2165,7 @@ class investment_simulation(APIView):
         cache_key = f"latest_simulation_{request.user.id}"
         cache.set(cache_key, response_data, timeout=None)  # None = until cache clears manually
         print(f"Investment simulation stored in cache with key: {cache_key}")
-        logger.debug(f"Cache data: {cache.get(cache_key)}")
+        print(f"Cache data: {cache.get(cache_key)}")
         return Response(response_data, status=200)
     
     def get(self, request, startup_id=None):
@@ -2177,14 +2173,14 @@ class investment_simulation(APIView):
         if startup_id:
             cache_key = f"latest_simulation_{request.user.id}"
             simulation = cache.get(cache_key)
-            logger.debug(f"Cache retrieval for key {cache_key}: {simulation}")
+            print(f"Cache retrieval for key {cache_key}: {simulation}")
             if not simulation:
                 return Response({"detail": "No baseline simulation found"}, status=404)
             return Response(simulation, status=200)
         else:
             cache_key = f"latest_simulation_{request.user.id}"
             simulation = cache.get(cache_key)
-            logger.debug(f"Cache retrieval for key {cache_key}: {simulation}")
+            print(f"Cache retrieval for key {cache_key}: {simulation}")
             if not simulation:
                 return Response({"detail": "No simulation found in cache"}, status=404)
             return Response(simulation, status=200)
