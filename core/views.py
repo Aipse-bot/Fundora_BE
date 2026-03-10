@@ -2016,7 +2016,7 @@ class investment_simulation(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        logger.info(f"Investment simulation request data: {request.data}")
+        print(f"Investment simulation request data: {request.data}")
         startup_id = request.data.get('startup_id')
         investment_amount = request.data.get('investment_amount', 1000)
         duration_years = request.data.get('duration_years', 1)
@@ -2168,12 +2168,12 @@ class investment_simulation(APIView):
         # Store in cache keyed by user ID
         cache_key = f"latest_simulation_{request.user.id}"
         cache.set(cache_key, response_data, timeout=None)  # None = until cache clears manually
-        logger.info(f"Investment simulation stored in cache with key: {cache_key}")
+        print(f"Investment simulation stored in cache with key: {cache_key}")
         logger.debug(f"Cache data: {cache.get(cache_key)}")
         return Response(response_data, status=200)
     
     def get(self, request, startup_id=None):
-        logger.info(f"GET request received for investment simulation with startup_id={startup_id}")
+        print(f"GET request received for investment simulation with startup_id={startup_id}")
         if startup_id:
             cache_key = f"latest_simulation_{request.user.id}"
             simulation = cache.get(cache_key)
