@@ -2008,10 +2008,15 @@ def get_risk_color(confidence):
     else:
         return 'bg-red-100 text-red-800'
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class investment_simulation(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        logger.info(f"Investment simulation request data: {request.data}")
         startup_id = request.data.get('startup_id')
         investment_amount = request.data.get('investment_amount', 1000)
         duration_years = request.data.get('duration_years', 1)
@@ -2163,19 +2168,23 @@ class investment_simulation(APIView):
         # Store in cache keyed by user ID
         cache_key = f"latest_simulation_{request.user.id}"
         cache.set(cache_key, response_data, timeout=None)  # None = until cache clears manually
+        logger.info(f"Investment simulation stored in cache with key: {cache_key}")
+        logger.debug(f"Cache data: {cache.get(cache_key)}")
         return Response(response_data, status=200)
     
     def get(self, request, startup_id=None):
-        print(f"GET request received for investment simulation with startup_id={startup_id}")
+        logger.info(f"GET request received for investment simulation with startup_id={startup_id}")
         if startup_id:
             cache_key = f"latest_simulation_{request.user.id}"
             simulation = cache.get(cache_key)
+            logger.debug(f"Cache retrieval for key {cache_key}: {simulation}")
             if not simulation:
                 return Response({"detail": "No baseline simulation found"}, status=404)
             return Response(simulation, status=200)
         else:
             cache_key = f"latest_simulation_{request.user.id}"
             simulation = cache.get(cache_key)
+            logger.debug(f"Cache retrieval for key {cache_key}: {simulation}")
             if not simulation:
                 return Response({"detail": "No simulation found in cache"}, status=404)
             return Response(simulation, status=200)
