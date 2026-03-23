@@ -594,7 +594,7 @@ class AIRecommendationsView(APIView):
         n_recommendations = int(request.query_params.get('n', 10))
         
         try:
-            ml_service_url = "https://fundora-ml-service.onrender.com"
+            ml_service_url = "https://fundora-ml-service-yo0l.onrender.com"
             response = requests.post(
                 f"{ml_service_url}/api/recommendations",
                 json={
