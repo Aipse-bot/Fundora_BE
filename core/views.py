@@ -82,11 +82,29 @@ from .serializers import (
 
 from django.core.cache import cache
 
+import logging
+import traceback
+from functools import wraps
+from rest_framework.response import Response
+
+logger = logging.getLogger(__name__)
+
+def log_exceptions(view_func):
+    @wraps(view_func)
+    def wrapper(*args, **kwargs):
+        try:
+            return view_func(*args, **kwargs)
+        except Exception as e:
+            logger.error("Error in view %s: %s", view_func.__name__, e)
+            logger.debug(traceback.format_exc())
+            return Response({"error": str(e)}, status=500)
+    return wrapper
+
 
 # ============================================================================
 # CONFIDENCE CALCULATION UTILITY
 # ============================================================================
-
+@log_exceptions
 def calculate_confidence_percentage(startup):
     """Calculate confidence percentage based on data completeness and quality."""
     score = 0
@@ -179,7 +197,7 @@ def calculate_confidence_percentage(startup):
     
     return confidence_percentage, confidence_level
 
-
+@log_exceptions
 def get_django_user_from_session(request):
     """
     Helper function to get Django User from session-based authentication
@@ -204,6 +222,8 @@ def get_django_user_from_session(request):
     )
     return django_user
 
+
+@log_exceptions
 class section_list(APIView):
     # authentication_classes = [JWTAuthentication]
     # permission_classes = [IsAuthenticated]
@@ -221,6 +241,7 @@ class section_list(APIView):
         ]
         return Response(sections)
 
+@log_exceptions
 class index(APIView):
     def get(self, request):
         startup_user_id = request.session.get('startup_user_id')
@@ -233,6 +254,7 @@ class index(APIView):
         }
         return Response(data, status=status.HTTP_200_OK)
 
+@log_exceptions
 class investor_registration(APIView):
     def post(self, request):
         serializer = InvestorRegistrationSerializer(data=request.data)
@@ -247,6 +269,8 @@ class investor_registration(APIView):
             'errors': serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
 
+
+@log_exceptions
 class login_view(APIView):
     """
     Unified login view for startups and investors.
@@ -285,6 +309,7 @@ class login_view(APIView):
         )
     
 #session token
+@log_exceptions
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
     return {
@@ -293,6 +318,7 @@ def get_tokens_for_user(user):
     }
 
 # MOD 1
+@log_exceptions
 class dashboard(APIView): 
     def get(self, request):
         industry = request.query_params.get('industry', '')
@@ -344,6 +370,7 @@ class dashboard(APIView):
             "count": len(startup_data),
         }, status=status.HTTP_200_OK)
 
+@log_exceptions
 def sort_startups(startups, sort_by):
     """
     Sort startup list by various criteria
@@ -368,6 +395,7 @@ def sort_startups(startups, sort_by):
     # Default: return as-is (already ordered by created_at desc from queryset)
     return startups
 
+@log_exceptions
 class StartupListView(ListAPIView):
     """
     API endpoint to list startups with filtering and sorting.
@@ -582,6 +610,7 @@ class StartupListView(ListAPIView):
         
         return Response(data)
     
+@log_exceptions
 class AIRecommendationsView(APIView):
     permission_classes = []
     
@@ -668,8 +697,8 @@ class AIRecommendationsView(APIView):
             'fallback': True,
             'count': len(serializer.data)
         })
-
-    
+  
+@log_exceptions
 class StartupDetailView(RetrieveAPIView):
     queryset = Startup.objects.all()
     serializer_class = StartupSerializer
@@ -681,7 +710,7 @@ class StartupDetailView(RetrieveAPIView):
         record_startup_view(request.user, instance, request=request)
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
-
+@log_exceptions
 class CurrentUserView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -689,6 +718,7 @@ class CurrentUserView(APIView):
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
     
+@log_exceptions
 class StartupFinancialsView(APIView):
     def get(self, request, startup_id):
         try:
@@ -705,6 +735,7 @@ class StartupFinancialsView(APIView):
         }
         return Response(data)
     
+@log_exceptions
 class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -768,6 +799,7 @@ class ProfileView(APIView):
             'downloads': downloads_data
         })
 
+@log_exceptions
 class UpdateProfileView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -801,6 +833,7 @@ class UpdateProfileView(APIView):
             'email': user.email
         })
     
+@log_exceptions
 class StartupProfileAccountView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -911,6 +944,7 @@ class StartupProfileAccountView(APIView):
             'founder_linkedin': registered_user.founder_linkedin or '',
         })
     
+@log_exceptions
 class UpdateStartupProfileView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -951,6 +985,7 @@ class UpdateStartupProfileView(APIView):
                 'error': 'User profile not found.'
             }, status=status.HTTP_404_NOT_FOUND)
     
+@log_exceptions
 class StartupProfileView(APIView):
     permission_classes = [AllowAny]
 
@@ -1048,6 +1083,7 @@ class StartupProfileView(APIView):
         
         return Response(data, status=status.HTTP_200_OK)
 
+@log_exceptions
 class FinancialProjectionListView(APIView):
     permission_classes = [AllowAny]
 
@@ -1064,6 +1100,7 @@ class FinancialProjectionListView(APIView):
         serializer = FinancialProjectionSerializer(financials, many=True)
         return Response(serializer.data)
     
+@log_exceptions
 class RecordStartupComparisonAPI(APIView):
     """API endpoint to record when a user compares startups"""
     permission_classes = [IsAuthenticated]
@@ -1161,6 +1198,7 @@ class RecordStartupComparisonAPI(APIView):
         serializer.is_valid(raise_exception=True)
         return Response(serializer.data, status=response_status)
     
+@log_exceptions
 def record_startup_comparison(user, startups, request=None, dedupe_minutes=5):
     """
     Utility to record a startup comparison with optional deduplication.
@@ -1236,6 +1274,7 @@ def record_startup_comparison(user, startups, request=None, dedupe_minutes=5):
         'comparisons': comparisons
     }
 
+@log_exceptions
 class RecordStartupViewAPI(APIView):
     """API endpoint to record when a user views a startup profile"""
     permission_classes = [IsAuthenticated]
@@ -1297,7 +1336,7 @@ class RecordStartupViewAPI(APIView):
         serializer.is_valid(raise_exception=True)
         return Response(serializer.data, status=response_status)
 
-
+@log_exceptions
 class RecordStartupComparisonAPI(APIView):
     """API endpoint to record when a user compares startups"""
     permission_classes = [IsAuthenticated]
@@ -1457,6 +1496,7 @@ class RecordStartupComparisonAPI(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
+@log_exceptions
 def record_startup_view(user, startup, request=None, dedupe_minutes=5, allow_owner=False):
     """Utility to record a startup view with optional deduplication."""
     if not user or not getattr(user, 'is_authenticated', False):
@@ -1497,7 +1537,7 @@ def record_startup_view(user, startup, request=None, dedupe_minutes=5, allow_own
 
     return {'status': 'recorded', 'view': view_record}
 
-
+@log_exceptions
 def record_startup_comparison(user, startups, request=None, dedupe_minutes=5):
     """
     Utility to record a startup comparison with optional deduplication.
@@ -1573,6 +1613,7 @@ def record_startup_comparison(user, startups, request=None, dedupe_minutes=5):
         'comparisons': comparisons
     }
 
+@log_exceptions
 class watchlist_view(APIView):
     def get(self, request):
         if not request.user.is_authenticated:
@@ -1591,6 +1632,7 @@ class watchlist_view(APIView):
             "count": len(data)
         }, status=status.HTTP_200_OK)
 
+@log_exceptions
 class add_to_watchlist(APIView):
     def post(self, request, startup_id):
         if not request.user.is_authenticated:
@@ -1609,6 +1651,7 @@ class add_to_watchlist(APIView):
             )
         }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
+@log_exceptions
 class remove_from_watchlist(APIView):
     def post(self, request, startup_id):
         if not request.user.is_authenticated:
@@ -1628,6 +1671,7 @@ class remove_from_watchlist(APIView):
 
 
 # MOD 2
+@log_exceptions
 class SaveComparisonView(APIView):
     """Save a comparison set for the authenticated user"""
     def post(self, request):
@@ -1676,6 +1720,7 @@ class SaveComparisonView(APIView):
             "already_exists": False
         }, status=status.HTTP_201_CREATED)
 
+@log_exceptions
 class ListComparisonsView(APIView):
     """List all saved comparisons for the authenticated user"""
     def get(self, request):
@@ -1708,6 +1753,7 @@ class ListComparisonsView(APIView):
             "count": len(results)
         }, status=status.HTTP_200_OK)
 
+@log_exceptions
 class DeleteComparisonSetView(APIView):
     """Delete a saved comparison set"""
     def delete(self, request, comparison_id):
@@ -1732,6 +1778,7 @@ class DeleteComparisonSetView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+@log_exceptions
 def get_risk_level(self, obj):
     """
     Uses Altman Z-Score Formula for Private Companies (Z')
@@ -1785,6 +1832,7 @@ def get_risk_level(self, obj):
         print(f"Risk calculation error: {e}")
         return None
 
+@log_exceptions
 def get_risk_color(confidence):
     """Helper function to get risk color class"""
     if confidence == 'High':
@@ -1794,6 +1842,7 @@ def get_risk_color(confidence):
     else:
         return 'bg-red-100 text-red-800'
 
+@log_exceptions
 class company_profile(APIView):
     def get(self, request, startup_id):
         user = request.user
@@ -1854,6 +1903,7 @@ class company_profile(APIView):
 
         return Response(startup_data, status=status.HTTP_200_OK)
 
+@log_exceptions
 class compare_startups(APIView):
     def get(self, request):
         user = request.user
@@ -1881,6 +1931,7 @@ class compare_startups(APIView):
 
         return Response({"startups": investor_view_data}, status=status.HTTP_200_OK)
 
+@log_exceptions
 class startup_comparison(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1956,6 +2007,7 @@ class startup_comparison(APIView):
         }, status=200)
 
 # Analytics helper functions
+@log_exceptions
 def get_startup_analytics(startup):
     """Get view and comparison analytics for a startup"""
     from datetime import timedelta
@@ -1999,6 +2051,7 @@ def get_startup_analytics(startup):
         'recent_watchlist': recent_watchlist,
     }
 
+@log_exceptions
 def get_risk_color(confidence):
     """Helper function to get risk color class"""
     if confidence == 'High':
@@ -2008,6 +2061,7 @@ def get_risk_color(confidence):
     else:
         return 'bg-red-100 text-red-800'
 
+@log_exceptions
 class investment_simulation(APIView):
     #permission_classes = [IsAuthenticated]
     print("Investment Simulation API initialized")
@@ -2188,6 +2242,7 @@ class investment_simulation(APIView):
 
 
 #TODO: UPDATE
+@log_exceptions
 class calculate_investment_api(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -2245,6 +2300,7 @@ class calculate_investment_api(APIView):
             } if selected_startup else None
         }, status=200)
 
+@log_exceptions
 class startup_registration(APIView):
     def post(self, request):
         serializer = StartupRegistrationSerializer(data=request.data)
@@ -2259,10 +2315,12 @@ class startup_registration(APIView):
             'errors': serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
     
+@log_exceptions
 def registration_success(request):
     return render(request, 'Module_3/registration_success.html')
 
 # MOD 3
+@log_exceptions
 class added_startups(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -2332,6 +2390,7 @@ class added_startups(APIView):
                 'detail': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+@log_exceptions
 class user_logout(APIView):
     def post(self, request):
         # Clear any cached simulation results for this user
@@ -2348,6 +2407,7 @@ class user_logout(APIView):
             'message': 'You have been logged out successfully.'
         }, status=status.HTTP_200_OK)
 
+@log_exceptions
 class health_report_page(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -2369,6 +2429,7 @@ class health_report_page(APIView):
             'edit_startup_id': edit_startup_id
         }, status=200)
 
+@log_exceptions
 @api_view(['POST'])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
@@ -2457,6 +2518,7 @@ def add_startup(request):
             'errors': serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
 
+@log_exceptions
 class delete_startup(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -2493,6 +2555,7 @@ class delete_startup(APIView):
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+@log_exceptions
 class edit_startup(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -2600,6 +2663,7 @@ class edit_startup(APIView):
             }
         }, status=200)
 
+@log_exceptions
 class view_startup_report(APIView):
     """
     DRF-compliant view to get detailed startup report for authenticated users
@@ -2683,6 +2747,7 @@ class view_startup_report(APIView):
         }
         return Response(company_data, status=status.HTTP_200_OK)
 
+@log_exceptions
 class add_deck_to_recommended(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -2786,6 +2851,7 @@ class add_deck_to_recommended(APIView):
             print(traceback.format_exc())
             return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+@log_exceptions
 class debug_session(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -2797,6 +2863,7 @@ class debug_session(APIView):
         }
         return Response(session_data, status=200)
 
+@log_exceptions
 class FinancialsView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -2807,6 +2874,7 @@ class FinancialsView(APIView):
         serializer = FinancialProjectionSerializer(financials, many=True)
         return Response(serializer.data)
 
+@log_exceptions
 class startup_detail(APIView):
     """
     DRF-compliant view to get and update a single startup owned by the authenticated user
