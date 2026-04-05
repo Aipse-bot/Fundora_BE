@@ -82,6 +82,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:5501",
     "http://localhost:5501",
+    "https://fundora-ptuc9q844-fundoras-projects-345a93a5.vercel.app",
 ]
 
 # Exempt API endpoints from CSRF
