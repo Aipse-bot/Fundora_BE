@@ -1,9 +1,10 @@
+# Django core imports
 from django.utils import timezone
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse, JsonResponse, Http404
 from django.template.loader import render_to_string
 from django.contrib import messages
-from django.contrib.auth import authenticate, login
+from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth.hashers import make_password, check_password
@@ -12,39 +13,21 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_POST
 from django.forms import ValidationError, inlineformset_factory
 from django.db import transaction
-from django.db.models import Value, FloatField, Case, When, Prefetch
+from django.db.models import Value, FloatField, Case, When, Prefetch, Count, Q
+from django.conf import settings
 
+# REST Framework imports
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.generics import ListAPIView, RetrieveAPIView
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .models import Startup, Deck, FinancialProjection
-from .serializers import (
-    UserSerializer,
-    DeckDetailSerializer,
-    FinancialProjectionSerializer,
-    StartupViewSerializer,
-    RecordViewResponseSerializer,
-)
-import uuid
-import math
-from datetime import timedelta
-
-class StartupFinancialsView(APIView):
-    def get(self, request, startup_id):
-        try:
-            startup = Startup.objects.get(pk=startup_id)
-        except Startup.DoesNotExist:
-            return Response({'detail': 'Startup not found.'}, status=status.HTTP_404_NOT_FOUND)
-        financials = FinancialProjection.objects.filter(deck=startup.source_deck)
-        serializer = FinancialProjectionSerializer(financials, many=True)
-        return Response(serializer.data)
-
-    
-# 3rd-party
+# ReportLab imports for PDF generation
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
@@ -59,12 +42,16 @@ from reportlab.platypus import (
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib import colors
 
-# Python standard
+# Python standard library imports
 from io import BytesIO
 import datetime
 import json
+import uuid
+import math
+from datetime import timedelta
+import requests
 
-# Project-specific
+# Local app imports - Models
 from .models import (
     FinancialProjection,
     Startup,
@@ -80,6 +67,8 @@ from .models import (
     StartupView,
     StartupComparison,
 )
+
+# Local app imports - Forms
 from .forms import (
     RegistrationForm,
     LoginForm,
@@ -92,31 +81,9 @@ from .forms import (
     TeamMemberFormSet,
 )
 
-from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.shortcuts import get_object_or_404
-from django.db import transaction
-from django.contrib.auth.hashers import make_password
-from .models import RegisteredUser  # assuming your custom model
-from django.contrib.auth.hashers import check_password
-from .models import Startup, Watchlist, ComparisonSet, Download, StartupView, StartupComparison, Deck
-from django.db.models import Q
-from rest_framework.permissions import IsAuthenticated
-from django.http import HttpResponse
-from io import BytesIO
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER
-from reportlab.lib import colors
-import datetime
-import uuid
-from django.contrib.auth import logout
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.authentication import JWTAuthentication
+# Local app imports - Serializers
 from .serializers import (
+    UserSerializer,
     InvestorRegistrationSerializer,
     StartupRegistrationSerializer,
     LoginSerializer,
@@ -582,12 +549,32 @@ class StartupListView(ListAPIView):
         elif hasattr(self, '_risk_filter') and self._risk_filter is not None:
             risk_value = self._risk_filter
             if risk_value <= 33:
-                # Conservative: Low risk only (exclude pitch decks with None)
-                data = [item for item in data if item.get('risk_level') == 'Low']
+                # Conservative: Low risk only with minimum 5% growth (exclude pitch decks)
+                data = [item for item in data 
+                    if item.get('risk_level') == 'Low'
+                    and item.get('estimated_growth_rate') is not None
+                    and item.get('estimated_growth_rate') >= 5]
             elif risk_value <= 66:
-                # Balanced: Low and Medium risk (exclude pitch decks with None)
-                data = [item for item in data if item.get('risk_level') in ['Low', 'Medium']]
-            # else: Aggressive: show all risk levels (including pitch decks)
+                # Balanced: Low (5%+) and Medium (15%+) risk (exclude pitch decks)
+                data = [item for item in data 
+                    if (item.get('risk_level') == 'Low' 
+                        and item.get('estimated_growth_rate') is not None
+                        and item.get('estimated_growth_rate') >= 5)
+                    or (item.get('risk_level') == 'Medium'
+                        and item.get('estimated_growth_rate') is not None
+                        and item.get('estimated_growth_rate') >= 15)]
+            else:
+                # Aggressive: show all risk levels with their respective minimums (exclude pitch decks)
+                data = [item for item in data 
+                    if (item.get('risk_level') == 'Low' 
+                        and item.get('estimated_growth_rate') is not None
+                        and item.get('estimated_growth_rate') >= 5)
+                    or (item.get('risk_level') == 'Medium'
+                        and item.get('estimated_growth_rate') is not None
+                        and item.get('estimated_growth_rate') >= 15)
+                    or (item.get('risk_level') == 'High'
+                        and item.get('estimated_growth_rate') is not None
+                        and item.get('estimated_growth_rate') >= 30)]
         
         if hasattr(self, '_min_growth_rate_filter') and self._min_growth_rate_filter is not None:
             data = [
@@ -647,6 +634,94 @@ class StartupListView(ListAPIView):
             data = sorted(data, key=lambda x: float(x.get('market_growth_rate') or 999999))
         
         return Response(data)
+    
+class AIRecommendationsView(APIView):
+    permission_classes = []
+    
+    def get(self, request):
+        if request.user.is_authenticated:
+            user_id = request.user.id
+        else:
+            user_id = int(request.query_params.get('user_id', 1))
+        
+        n_recommendations = int(request.query_params.get('n', 10))
+        
+        try:
+            ml_service_url = "https://fundora-ml-service.onrender.com"
+            response = requests.post(
+                f"{ml_service_url}/api/recommendations",
+                json={
+                    "user_id": user_id,
+                    "n_recommendations": n_recommendations,
+                    "exclude_viewed": False # change for now to see all recom
+                },
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                ml_data = response.json()
+                
+                # DEBUG: Print what ML service returned
+                print("=== ML SERVICE RESPONSE ===")
+                print(f"ML Data: {ml_data}")
+                print(f"Recommendations: {ml_data.get('recommendations', [])}")
+                
+                startup_ids = [rec['startup_id'] for rec in ml_data['recommendations']]
+                print(f"Startup IDs to fetch: {startup_ids}")
+                
+                # Fetch full startup details from database
+                startups = Startup.objects.filter(id__in=startup_ids)
+                print(f"Found {len(startups)} startups in database")
+                print(f"Startup IDs found: {[s.id for s in startups]}")
+                
+                # Preserve the order from ML recommendations
+                startup_dict = {s.id: s for s in startups}
+                ordered_startups = [startup_dict[sid] for sid in startup_ids if sid in startup_dict]
+                
+                serializer = StartupSerializer(
+                    ordered_startups, 
+                    many=True, 
+                    context={'request': request}
+                )
+                
+                return Response({
+                    'recommendations': serializer.data,
+                    'model_version': ml_data.get('model_version', 'v1.0'),
+                    'ai_powered': True,
+                    'count': len(serializer.data),
+                    'user_id': user_id
+                })
+            else:
+                # Fallback to popular startups
+                return self._fallback_recommendations(request, n_recommendations)
+                
+        except requests.exceptions.RequestException as e:
+            print(f"ML Service error: {e}")
+            # Fallback to popular startups
+            return self._fallback_recommendations(request, n_recommendations)
+    
+    def _fallback_recommendations(self, request, n=10):
+        """Fallback to simple popularity-based recommendations"""
+        from django.db.models import Count
+        
+        # Get most viewed startups
+        popular_startups = Startup.objects.annotate(
+            view_count=Count('startupview')
+        ).order_by('-view_count')[:n]
+        
+        serializer = StartupSerializer(
+            popular_startups, 
+            many=True, 
+            context={'request': request}
+        )
+        
+        return Response({
+            'recommendations': serializer.data,
+            'ai_powered': False,
+            'fallback': True,
+            'count': len(serializer.data)
+        })
+
     
 class StartupDetailView(RetrieveAPIView):
     queryset = Startup.objects.all()
@@ -1989,6 +2064,7 @@ def get_risk_color(confidence):
     else:
         return 'bg-red-100 text-red-800'
 
+LATEST_SIMULATIONS = {}
 class investment_simulation(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -2140,6 +2216,8 @@ class investment_simulation(APIView):
             "adjusted_return": risk_adjusted_return_percent,
             "risk_level": risk_level,
         }
+
+        LATEST_SIMULATIONS[request.user.id] = response_data
 
         return Response(response_data, status=200)
 
@@ -3651,3 +3729,24 @@ class TestAPI(APIView):
 
     def get(self, request):
         return Response({"message": "API is working!"})
+    
+from rest_framework.views import APIView
+from rest_framework.response import Response
+
+class LatestSimulationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, startup_id=None):
+        latest_result = LATEST_SIMULATIONS.get(request.user.id)
+
+        if not latest_result:
+            return Response({
+                "simulation_run": False,
+                "message": "No simulation result found"
+            }, status=200)
+
+        return Response({
+            "simulation_run": True,
+            "result": latest_result
+        }, status=200)
+
