@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'core',
     'rest_framework',
     'corsheaders',
+    'django_extensions',
 ]
 
 MIDDLEWARE = [
@@ -57,7 +58,8 @@ MIDDLEWARE = [
 
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = [
-    "http://127.0.0.1:5500",
+    "http://127.0.0.1:5501",
+    "http://127.0.0.1:8000",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -136,20 +138,45 @@ WSGI_APPLICATION = 'fundora_backend.wsgi.application'
 # }
 
 # Database
-DATABASES = {
-    'default': dj_database_url.config(
-        default='sqlite:///db.sqlite3',
-        conn_max_age=600
-    )
-}
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'db_fundora',
+#         'USER': 'db_fundora_user',
+#         'PASSWORD': 'cuVQpvlKLFk3BvVuucwdkByxIRws7qrQ',
+#         'HOST': 'dpg-d4sq0vi4d50c73df79tg-a.singapore-postgres.render.com',
+#         'PORT': '5432',
+#         'OPTIONS': {
+#             'sslmode': 'require',
+#         }
+#     }
+# }
 
-# SSL configuration ONLY for PostgreSQL (when DATABASE_URL is set)
-if 'DATABASE_URL' in os.environ:
-    db_url = os.environ.get('DATABASE_URL', '')
-    if 'postgres' in db_url:
-        DATABASES['default']['OPTIONS'] = {
-            'sslmode': 'require',
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
+
+# Use Render Postgres in production, SQLite locally
+if os.environ.get("DATABASE_URL"):  # set automatically in Railway/Render
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get("DATABASE_URL"),
+            conn_max_age=600,  # optional: keep connections alive
+            ssl_require=True   # ensure SSL for Postgres
+        )
+    }
+else:
+    # Local dev fallback
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
         }
+    }
 
 SECRET_KEY = config("SECRET_KEY")
 DEBUG = config("DEBUG", default=False, cast=bool)
@@ -220,3 +247,9 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': False,
 }
+
+ML_SERVICE_URL = "https://fundora-ml-service.onrender.com"
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
